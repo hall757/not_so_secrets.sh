@@ -1,5 +1,7 @@
 # secrets.sh
 
+Forked version with GPG encryption removed.  I needed a simple way to generate random tokens for associations between different systems.  My use case had no need for encryption.
+
 ⚠️ **WARNING:** This code is brand new. There are no tests yet. Even I haven't started using it yet. ⚠️
 
   - [About](#about)
@@ -24,7 +26,7 @@
 ## About
 
 secrets.sh is a secrets manager written in [bash](https://www.gnu.org/software/bash/); it provides a simple key-value store that is
-stored in file signed and encrypted by [GnuPG](https://gnupg.org/).
+stored in a cleartext file.
 
 This is mostly intended for use in your dotfiles, in order to load API keys and
 such into your environment, without having to store them in plain text on disk. This might be handy if you even want to store your secrets in a public

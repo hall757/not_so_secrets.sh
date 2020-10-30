@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #/ Usage: secrets.sh <operation> [<key> [<value]]
 #/
-#/ Simple secrets manager in bash using GPG
+#/ Simple secrets manager in bash using no encryption
 #/
 #/   Store a secret:    secrets.sh set my_secret_key my_secret
 #/            ...or:    secrets.sh set my_secret_key
@@ -45,27 +45,6 @@ usage()
 #/
 SECRETS_PATH=${SECRETS_PATH:-"$HOME/.secrets"}
 
-#/ To use a specific gpg binary, set SECRETS_GPG_PATH.
-if [ -z "$SECRETS_GPG_PATH" ] ; then
-  if [ -n "$(type -P gpg2)" ] ; then
-    SECRETS_GPG_PATH="$(type -P gpg2)"
-  elif [ -n "$(type -P gpg)" ] ; then
-    SECRETS_GPG_PATH="$(type -P gpg)"
-  else
-    echo "ERROR: couldn't find gpg on PATH, do you need to set SECRETS_GPG_PATH?" >&2
-    usage
-    exit 1
-  fi
-fi
-
-#/ To pass extra arguments to GPG, set SECRETS_GPG_ARGS.
-SECRETS_GPG_ARGS=${SECRETS_GPG_ARGS:-""}
-
-#/ To use a specific GPG key, set SECRETS_GPG_KEY to the key ID.
-if [ -n "$SECRETS_GPG_KEY" ] ; then
-  SECRETS_GPG_ARGS="$SECRETS_GPG_ARGS --default-key $SECRETS_GPG_KEY"
-fi
-
 if [ -z "$COLUMNS" ] ; then
   if [ -t 1 ] ; then
     COLUMNS=$(tput cols)
@@ -105,95 +84,19 @@ urldecode()
 
 read_secrets()
 {
-  if [ -e "$SECRETS_PATH" ] ; then
-    local fifo_dir
-    fifo_dir=$(mktemp -d)
-
-    local status_fifo="$fifo_dir/status.$RANDOM"
-    mkfifo -m 0600 "$status_fifo"
-    exec 3<>"$status_fifo"
-    exec 4<"$status_fifo"
-
-    local logger_fifo="$fifo_dir/logger.$RANDOM"
-    mkfifo -m 0600 "$logger_fifo"
-    exec 5<>"$logger_fifo"
-    exec 6<"$logger_fifo"
-
-    local output_fifo="$fifo_dir/output.$RANDOM"
-    mkfifo -m 0600 "$output_fifo"
-    exec 7<>"$output_fifo"
-    exec 8<"$output_fifo"
-
-    rm -rf "$fifo_dir"
-    local gpg_status=0
-    $SECRETS_GPG_PATH -q $SECRETS_GPG_ARGS --with-colons \
-      --status-fd 3 --logger-fd 5 \
-      --decrypt < "$SECRETS_PATH" >&7 || gpg_status=$?
-
-    exec 3>&-
-    exec 5>&-
-    exec 7>&-
-
-    if [ "$gpg_status" != "0" ] ; then
-      cat - <&6 >&2
-      exit $gpg_status
-    fi
-
-    local decrypt_key='' verify_key='' gpg_op
-    while read -u 4
-    do
-      gpg_op=$(cut -d' ' -f2 <<< "$REPLY")
-      if [ "$gpg_op" = "DECRYPTION_KEY" ] ; then
-        decrypt_key=$(cut -d' ' -f4 <<< "$REPLY")
-      elif [ "$gpg_op" = "VALIDSIG" ] ; then
-        verify_key=$(cut -d' ' -f12 <<< "$REPLY")
-      fi
-      if [ -n "$decrypt_key" ] && [ -n "$verify_key" ] ; then
-        break
-      fi
-    done
-
-    if [ -z "$verify_key" ] ; then
-      echo "ERROR: $SECRETS_PATH doesn't appear to be signed" >&2
-      exit 1
-    elif [ "$verify_key" != "$decrypt_key" ] ; then
-      echo "ERROR: different keys used to sign and to encrypt $SECRETS_PATH" >&2
-      exit 1
-    fi
-
-    cat - <&8
+  if [ ! -e "$SECRETS_PATH" ] ; then
+    touch "$SECRETS_PATH"
   fi
+  cat "$SECRETS_PATH"
 }
 
 write_secrets()
 {
-  local fifo_dir
-  fifo_dir=$(mktemp -d)
-
-  local logger_fifo="$fifo_dir/logger.$RANDOM"
-  mkfifo -m 0600 "$logger_fifo"
-  exec 9<>"$logger_fifo"
-  exec 10<"$logger_fifo"
-
-  local output_fifo="$fifo_dir/output.$RANDOM"
-  mkfifo -m 0600 "$output_fifo"
-  exec 11<>"$output_fifo"
-  exec 12<"$output_fifo"
-
-  rm -rf "$fifo_dir"
-  local gpg_status=0
-  $SECRETS_GPG_PATH $SECRETS_GPG_ARGS --default-recipient-self -z 9 --armor \
-    --logger-fd 9 --sign --encrypt >&11 || gpg_status=$?
-
-  exec 9>&-
-  exec 11>&-
-
-  if [ "$gpg_status" != "0" ] ; then
-    cat - <&10 >&2
-    exit $gpg_status
-  fi
-
-  cat - <&12 > "$SECRETS_PATH"
+  truncate "$SECRETS_PATH" --size 0
+  while read line
+  do
+    echo "$line" >> "$SECRETS_PATH"
+  done
 }
 
 list_secrets()
